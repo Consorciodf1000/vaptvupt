@@ -18,6 +18,7 @@
     if (S.tok && !silencioso) api('logout').catch(function () {});
     S.tok = ''; S.papel = ''; S.nome = ''; sessionStorage.clear(); S.aba = 'inicio'; fixos(); render();
   }
+  function listaMeses(ini, n) { var a = +ini.substr(0, 4), m = +ini.substr(5, 2), r = []; for (var i = 0; i < n; i++) { r.push(a + '-' + (m < 10 ? '0' : '') + m); m++; if (m > 12) { m = 1; a++; } } return r; }
   function admin() { return S.papel === 'admin'; }
 
   /* ---------- áreas fixas ---------- */
@@ -95,7 +96,7 @@
       Object.keys(d.grupos).sort().forEach(function (g) {
         h += '<div class="grupo"><h3>' + (g === '0' ? 'Participantes (aguardando sorteio)' : 'Grupo ' + g) + '</h3>' + chips(d.grupos[g].map(function (x) {
           var pode = admin() && x.parcelaId && x.cor !== 'verde';
-          return '<span class="chip ' + x.cor + '"' + (pode ? ' data-p="' + esc(x.parcelaId) + '" style="cursor:pointer" title="Clique para confirmar pagamento"' : '') + '>' + esc(x.nome) + (x.vencimento ? ' · ' + dt(x.vencimento) : '') + '</span>';
+          return '<span class="chip ' + x.cor + '"' + (pode ? ' data-p="' + esc(x.parcelaId) + '" style="cursor:pointer" title="Clique para confirmar pagamento"' : '') + '>' + esc(x.nome) + (x.vencimento ? ' · ' + dt(x.vencimento) : '') + (x.valor ? ' · ' + moeda(x.valor) : '') + '</span>';
         }).join('')) + '</div>';
       });
       if (admin()) h += '<p class="mut">Clique em um participante amarelo ou vermelho para confirmar o pagamento.</p>';
@@ -151,7 +152,17 @@
     api('config').then(function (c) {
       var h = '<h2>Configurações</h2>' + CAMPOS.map(function (f) { return '<p><label>' + f[1] + '<br><input data-k="' + f[0] + '" value="' + esc(c[f[0]]) + '"></label></p>'; }).join('');
       h += '<p><label>Feriados (um por linha, AAAA-MM-DD)<br><textarea id="fer" rows="6">' + esc((c.feriados || []).join('\n')) + '</textarea></label></p><button id="bSalva">Salvar</button><p class="mut">Depois do sorteio, só prêmio, data e velocidade podem mudar.</p>';
+      h += '<h3>Acréscimo mensal (valor somado à parcela de todos no mês)</h3>' + listaMeses(c.inicio, parseInt(c.meses, 10) || 0).map(function (m) { return '<p><label>' + mm(m) + ' · R$ <input data-m="' + m + '" value="' + esc((c.acrescimos || {})[m] || 0) + '" size="8"></label></p>'; }).join('') + '<button id="bAcr">Salvar acréscimos</button><p class="mut">Um mês com pagamento confirmado não pode mais mudar.</p>';
       $('tela').innerHTML = h;
+      $('bAcr').onclick = function () {
+        var cadeia = Promise.resolve();
+        Array.prototype.forEach.call($('tela').querySelectorAll('[data-m]'), function (i) {
+          var m = i.getAttribute('data-m');
+          if (Number(String(i.value).replace(',', '.')) === Number((c.acrescimos || {})[m] || 0)) return;
+          cadeia = cadeia.then(function () { return api('salvarAcrescimo', { mes: m, valor: i.value }); });
+        });
+        cadeia.then(function () { toast('Acréscimos salvos'); return carregarPub(); }).then(vCfg).catch(falha);
+      };
       $('bSalva').onclick = function () {
         var v = {}; Array.prototype.forEach.call($('tela').querySelectorAll('[data-k]'), function (i) { v[i.getAttribute('data-k')] = i.value; });
         var fer = $('fer').value.split('\n').map(function (x) { return x.trim(); }).filter(Boolean);
