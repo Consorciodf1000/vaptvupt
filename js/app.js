@@ -5,7 +5,7 @@
   var carTimer = null, animTimer = null;
 
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
-  function moeda(v) { return Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }); }
+  function moeda(v) { return 'R$ ' + (Math.round(Number(v || 0) * 100) / 100).toFixed(2).replace('.', ','); }
   function dt(s) { s = String(s || ''); return s.length >= 10 ? s.substr(8, 2) + '/' + s.substr(5, 2) + '/' + s.substr(0, 4) : s; }
   function mm(s) { s = String(s || ''); return s.substr(5, 2) + '/' + s.substr(0, 4); }
   function toast(m) { var t = $('toast'); t.textContent = m; t.style.display = 'block'; clearTimeout(toast.t); toast.t = setTimeout(function () { t.style.display = 'none'; }, 3500); }
@@ -29,7 +29,7 @@
     var r = p.resumo;
     $('nav').innerHTML = '<span>Parcela: <b>' + moeda(r.parcela) + '</b></span><span>Prêmio: <b>' + moeda(r.premio) + '</b></span><span>Arrecadado (' + mm(r.mes) + '): <b>' + moeda(r.arrecadado) + '</b></span><span>Pendente: <b>' + moeda(r.pendente) + '</b></span><span>Inadimplente: <b>' + moeda(r.inadimplente) + '</b></span>';
     var porMes = {};
-    p.sorteados.forEach(function (s) { (porMes[s.mes] = porMes[s.mes] || []).push('G' + s.grupo + ' ' + esc(s.nome)); });
+    p.sorteados.forEach(function (s) { (porMes[s.mes] = porMes[s.mes] || []).push('G' + s.grupo + ' ' + esc(s.nome) + ' (' + moeda(s.premio) + ')'); });
     var h = '<h3>Sorteados</h3>';
     Object.keys(porMes).sort().forEach(function (m) { h += '<p class="sort"><b>' + mm(m) + '</b><br>' + porMes[m].join('<br>') + '</p>'; });
     if (!p.sorteados.length) h += '<p class="mut">Sorteio ainda não realizado.' + (p.dataSorteio ? '<br>Agendado: ' + esc(p.dataSorteio) : '') + '</p>';
@@ -80,7 +80,7 @@
     api('meusDados').then(function (d) {
       if (d.admin) { $('tela').innerHTML = '<p>Você está como administrador.</p>'; return; }
       var h = '<div class="card"><h2>' + esc(d.nome) + '</h2>';
-      h += d.mesRecebimento ? '<p>Grupo <b>' + esc(d.grupo) + '</b> · Você recebe em <b>' + mm(d.mesRecebimento) + '</b></p>' : '<p class="mut">O sorteio ainda não foi realizado.</p>';
+      h += d.mesRecebimento ? '<p>Grupo <b>' + esc(d.grupo) + '</b> · Você recebe em <b>' + mm(d.mesRecebimento) + '</b> · Prêmio <b>' + moeda(d.premio) + '</b></p>' : '<p class="mut">O sorteio ainda não foi realizado.</p>';
       h += LEG + chips(d.parcelas.map(function (x) { return '<span class="chip ' + x.cor + '">' + mm(x.mes) + ' · vence ' + dt(x.vencimento) + ' · ' + moeda(x.valor) + '</span>'; }).join('')) + '</div>';
       $('tela').innerHTML = h;
     }).catch(falha);
@@ -147,28 +147,20 @@
     }).catch(falha);
   }
 
-  var CAMPOS = [['parcela', 'Valor da parcela (R$)'], ['premio', 'Prêmio mensal por grupo (R$)'], ['inicio', 'Mês de início (AAAA-MM)'], ['meses', 'Quantidade de meses'], ['grupos', 'Quantidade de grupos'], ['velocidade', 'Velocidade do carrossel (segundos)']];
+  var CAMPOS = [['parcela', 'Rateio: parcela de cada participante no 1º mês (R$)'], ['acrescimo', 'Acréscimo por participante a cada mês (R$)'], ['inicio', 'Mês de início (AAAA-MM)'], ['meses', 'Quantidade de meses'], ['grupos', 'Quantidade de grupos'], ['velocidade', 'Velocidade do carrossel (segundos)']];
   function vCfg() {
     api('config').then(function (c) {
       var h = '<h2>Configurações</h2>' + CAMPOS.map(function (f) { return '<p><label>' + f[1] + '<br><input data-k="' + f[0] + '" value="' + esc(c[f[0]]) + '"></label></p>'; }).join('');
-      h += '<p><label>Feriados (um por linha, AAAA-MM-DD)<br><textarea id="fer" rows="6">' + esc((c.feriados || []).join('\n')) + '</textarea></label></p><button id="bSalva">Salvar</button><p class="mut">Depois do sorteio, só prêmio, data e velocidade podem mudar.</p>';
-      h += '<h3>Acréscimo mensal (valor somado à parcela de todos no mês)</h3>' + listaMeses(c.inicio, parseInt(c.meses, 10) || 0).map(function (m) { return '<p><label>' + mm(m) + ' · R$ <input data-m="' + m + '" value="' + esc((c.acrescimos || {})[m] || 0) + '" size="8"></label></p>'; }).join('') + '<button id="bAcr">Salvar acréscimos</button><p class="mut">Um mês com pagamento confirmado não pode mais mudar.</p>';
+      h += '<p><label>Feriados (um por linha, AAAA-MM-DD)<br><textarea id="fer" rows="6">' + esc((c.feriados || []).join('\n')) + '</textarea></label></p><button id="bSalva">Salvar</button><p class="mut">Depois do sorteio, só o acréscimo, a data e a velocidade podem mudar.</p>';
+      var n = parseInt(c.meses, 10) || 0, par = Number(c.parcela) || 0, acr = Number(String(c.acrescimo).replace(',', '.')) || 0;
+      h += '<h3>Valores calculados</h3><table class="tab"><tr><th>Mês</th><th>Parcela de cada participante</th><th>Prêmio</th></tr>' + listaMeses(c.inicio, n).map(function (m, k) { var v = par + acr * k; return '<tr><td>' + mm(m) + '</td><td>' + moeda(v) + '</td><td>' + moeda(v * n) + '</td></tr>'; }).join('') + '</table><p class="mut">Prêmio = participantes do grupo × parcela do mês. Depois de um pagamento confirmado, o acréscimo não pode mais mudar.</p>';
       $('tela').innerHTML = h;
-      $('bAcr').onclick = function () {
-        var cadeia = Promise.resolve();
-        Array.prototype.forEach.call($('tela').querySelectorAll('[data-m]'), function (i) {
-          var m = i.getAttribute('data-m');
-          if (Number(String(i.value).replace(',', '.')) === Number((c.acrescimos || {})[m] || 0)) return;
-          cadeia = cadeia.then(function () { return api('salvarAcrescimo', { mes: m, valor: i.value }); });
-        });
-        cadeia.then(function () { toast('Acréscimos salvos'); return carregarPub(); }).then(vCfg).catch(falha);
-      };
       $('bSalva').onclick = function () {
         var v = {}; Array.prototype.forEach.call($('tela').querySelectorAll('[data-k]'), function (i) { v[i.getAttribute('data-k')] = i.value; });
         var fer = $('fer').value.split('\n').map(function (x) { return x.trim(); }).filter(Boolean);
         var feito = S.pub.log.length > 0;
-        if (feito) v = { premio: v.premio, velocidade: v.velocidade };
-        api('salvarConfig', { valores: v }).then(function () { return feito ? 0 : api('salvarFeriados', { datas: fer }); }).then(function () { toast('Salvo'); return carregarPub(); }).catch(falha);
+        if (feito) v = { acrescimo: v.acrescimo, velocidade: v.velocidade };
+        api('salvarConfig', { valores: v }).then(function () { return feito ? 0 : api('salvarFeriados', { datas: fer }); }).then(function () { toast('Salvo'); return carregarPub(); }).then(vCfg).catch(falha);
       };
     }).catch(falha);
   }

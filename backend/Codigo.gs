@@ -29,7 +29,7 @@ function setup() {
     if (sh.getLastRow() === 0) sh.getRange(1, 1, 1, cab.length).setValues([cab]);
   });
   var cfg = lerConfig_();
-  var padrao = { parcela: '100', premio: '1200', inicio: '2027-01', meses: '12', grupos: '3', dataSorteio: '', velocidade: '5' };
+  var padrao = { parcela: '200', acrescimo: '5', inicio: '2027-01', meses: '12', grupos: '3', dataSorteio: '', velocidade: '5' };
   Object.keys(padrao).forEach(function (k) {
     if (cfg[k] === undefined) ss.getSheetByName('CONFIG').appendRow([k, padrao[k]]);
   });
@@ -57,6 +57,18 @@ function lerConfig_() {
   lerAba_('CONFIG').forEach(function (r) { o[String(r.chave)] = String(r.valor); });
   return o;
 }
+
+function arred_(v) { return Math.round(v * 100) / 100; }
+
+/** Parcela de cada participante no mês: rateio + acréscimo × (nº do mês − 1). */
+function valorParcelaMes_(cfg, mes) {
+  var ms = listaMeses(cfg.inicio, parseInt(cfg.meses, 10));
+  var k = Math.max(0, ms.indexOf(mes));
+  return arred_(Number(cfg.parcela) + (Number(cfg.acrescimo) || 0) * k);
+}
+
+/** Prêmio do mês = participantes do grupo (= nº de meses) × parcela do mês. */
+function premioMes_(cfg, mes) { return arred_(parseInt(cfg.meses, 10) * valorParcelaMes_(cfg, mes)); }
 
 function lerFeriados_() {
   var f = {};
@@ -174,19 +186,20 @@ function painel(mes) {
   }
   var porPart = {};
   parcelas.forEach(function (p) { if (p.mes === mes) porPart[String(p.participanteId)] = p; });
+  var cfgP = lerConfig_(), vp = valorParcelaMes_(cfgP, mes);
   var resumo = { arrecadado: 0, pendente: 0, inadimplente: 0 };
   var grupos = {};
   parts.forEach(function (p) {
     var pa = porPart[String(p.id)];
     var cor = pa ? corParcela(pa.status, pa.vencimento, hoje) : 'amarelo';
     if (pa) {
-      var v = Number(pa.valor) || 0;
+      var v = vp;
       if (cor === 'verde') resumo.arrecadado += v;
       else if (cor === 'vermelho') resumo.inadimplente += v;
       else resumo.pendente += v;
     }
     var g = p.grupo || 0;
-    (grupos[g] = grupos[g] || []).push({ id: p.id, nome: p.nome, parcelaId: pa ? pa.id : '', vencimento: pa ? pa.vencimento : '', cor: cor, mesRecebimento: p.mesRecebimento });
+    (grupos[g] = grupos[g] || []).push({ id: p.id, nome: p.nome, valor: pa ? vp : 0, parcelaId: pa ? pa.id : '', vencimento: pa ? pa.vencimento : '', cor: cor, mesRecebimento: p.mesRecebimento });
   });
   return { mes: mes, resumo: resumo, grupos: grupos };
 }

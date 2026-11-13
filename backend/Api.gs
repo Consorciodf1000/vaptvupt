@@ -1,7 +1,7 @@
 /** API do Web App. Front chama doPost com JSON em texto: {acao, token, ...}. doGet = dados públicos. */
 
-var CONFIG_PERMITIDAS = ['parcela', 'premio', 'inicio', 'meses', 'grupos', 'dataSorteio', 'velocidade'];
-var CONFIG_LIVRES_APOS_SORTEIO = ['premio', 'dataSorteio', 'velocidade'];
+var CONFIG_PERMITIDAS = ['parcela', 'acrescimo', 'inicio', 'meses', 'grupos', 'dataSorteio', 'velocidade'];
+var CONFIG_LIVRES_APOS_SORTEIO = ['acrescimo', 'dataSorteio', 'velocidade'];
 
 function resposta_(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
@@ -17,7 +17,9 @@ function salvarConfig(obj) {
     if (CONFIG_PERMITIDAS.indexOf(k) < 0) throw new Error('Configuração desconhecida: ' + k);
     if (feito && CONFIG_LIVRES_APOS_SORTEIO.indexOf(k) < 0) throw new Error('"' + k + '" não pode mudar após o sorteio');
     var v = String(obj[k]).trim();
-    if (['parcela', 'premio'].indexOf(k) >= 0 && !(parseFloat(v) >= 0)) throw new Error(k + ' inválido');
+    v = v.replace(',', '.');
+    if (['parcela', 'acrescimo'].indexOf(k) >= 0 && !(parseFloat(v) >= 0)) throw new Error(k + ' inválido');
+    if (k === 'acrescimo' && feito && lerAba_('PARCELAS').some(function (p) { return p.status === 'PAGO'; })) throw new Error('Já há pagamento confirmado; o acréscimo não pode mais mudar');
     if (['meses', 'grupos'].indexOf(k) >= 0 && !(parseInt(v, 10) >= 1)) throw new Error(k + ' inválido');
     if (k === 'inicio' && !/^\d{4}-(0[1-9]|1[0-2])$/.test(v)) throw new Error('inicio deve ser AAAA-MM');
     var idx = -1;
@@ -67,13 +69,13 @@ function removerBanner(id) {
 
 function dadosPublicos() {
   var cfg = lerConfig_();
-  var sorteados = lerAba_('SORTEIOS').map(function (s) { return { mes: s.mes, grupo: s.grupo, nome: s.nome }; });
+  var sorteados = lerAba_('SORTEIOS').map(function (s) { return { mes: s.mes, grupo: s.grupo, nome: s.nome, premio: premioMes_(cfg, s.mes) }; });
   sorteados.sort(function (a, b) { return a.mes < b.mes ? -1 : a.mes > b.mes ? 1 : Number(a.grupo) - Number(b.grupo); });
   var log = {};
   lerAba_('SORTEIOS').forEach(function (s) { log[s.codigo] = { dataHora: s.dataHora, codigo: s.codigo }; });
   var p = painel();
   return {
-    resumo: { parcela: Number(cfg.parcela), premio: Number(cfg.premio), mes: p.mes, arrecadado: p.resumo.arrecadado, pendente: p.resumo.pendente, inadimplente: p.resumo.inadimplente },
+    resumo: { parcela: valorParcelaMes_(cfg, p.mes), premio: premioMes_(cfg, p.mes), mes: p.mes, arrecadado: p.resumo.arrecadado, pendente: p.resumo.pendente, inadimplente: p.resumo.inadimplente },
     sorteados: sorteados,
     log: Object.keys(log).map(function (k) { return log[k]; }),
     dataSorteio: cfg.dataSorteio || '',
@@ -86,11 +88,11 @@ function meusDados_(u) {
   if (!u.participanteId) return { admin: true };
   var p = lerAba_('PARTICIPANTES').filter(function (x) { return String(x.id) === String(u.participanteId); })[0];
   if (!p) throw new Error('Participante não encontrado');
-  var hoje = hoje_();
+  var hoje = hoje_(), cfg = lerConfig_();
   var parcelas = lerAba_('PARCELAS').filter(function (x) { return String(x.participanteId) === String(p.id); }).map(function (x) {
-    return { mes: x.mes, vencimento: x.vencimento, valor: x.valor, cor: corParcela(x.status, x.vencimento, hoje) };
+    return { mes: x.mes, vencimento: x.vencimento, valor: valorParcelaMes_(cfg, x.mes), cor: corParcela(x.status, x.vencimento, hoje) };
   });
-  return { nome: p.nome, grupo: p.grupo, ordem: p.ordem, mesRecebimento: p.mesRecebimento, parcelas: parcelas };
+  return { nome: p.nome, grupo: p.grupo, ordem: p.ordem, mesRecebimento: p.mesRecebimento, premio: p.mesRecebimento ? premioMes_(cfg, p.mesRecebimento) : 0, parcelas: parcelas };
 }
 
 function executarAcao_(d) {
